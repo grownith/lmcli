@@ -9,13 +9,39 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./extension.js",
   "contributes": {
     "commands": [{
       "command": "lmcli.helloWorld",
       "title": "Hello World"
-    }]
+    }],
+    "languageModelChatProviders": [
+      {
+        "vendor": "lmcli",
+        "displayName": "Claude CLI",
+        "description": "Use the local Claude CLI as a language model chat provider.",
+        "default": true
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "lmcli",
+      "properties": {
+        "lmcli.claudeCliPath": {
+          "type": "string",
+          "default": "claude",
+          "description": "Path to the Claude CLI executable."
+        },
+        "lmcli.claudeCliArgs": {
+          "type": "string",
+          "default": "",
+          "description": "Extra arguments to pass to the Claude CLI. Use {{prompt}} to insert the prompt."
+        }
+      }
+    }
   },
   "scripts": {
     "lint": "eslint .",
