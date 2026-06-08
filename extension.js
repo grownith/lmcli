@@ -1,7 +1,7 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 const vscode = require('vscode');
-const { spawn } = require('child_process');
+const {JSONParser} = require('@streamparser/json-node');
 
 const outputChannel = vscode.window.createOutputChannel('lmcli Claude CLI');
 
@@ -10,15 +10,14 @@ const outputChannel = vscode.window.createOutputChannel('lmcli Claude CLI');
  * @returns {string[]}
  */
 function splitArgs(rawArgs) {
-	if (!rawArgs || rawArgs.trim().length === 0) {
+	if(!rawArgs || rawArgs.trim().length === 0)
 		return [];
-	}
+
 	const re = /(?:(?:"([^"]*)")|([^\s"]+))/g;
 	const args = [];
 	let match;
-	while ((match = re.exec(rawArgs))) {
+	while((match = re.exec(rawArgs)))
 		args.push(match[1] ?? match[2]);
-	}
 	return args;
 }
 
@@ -27,33 +26,16 @@ function splitArgs(rawArgs) {
  * @returns {string}
  */
 function flattenPart(part) {
-	if (part instanceof vscode.LanguageModelTextPart) {
+	if(part instanceof vscode.LanguageModelTextPart)
 		return part.value;
-	}
-	if (part && typeof part === 'object') {
-		if ('value' in part && typeof part.value === 'string') {
-			return part.value;
-		}
-		return JSON.stringify(part);
-	}
-	return String(part ?? '');
-}
 
-/**
- * @param {readonly vscode.LanguageModelChatRequestMessage[]} messages
- * @returns {string}
- */
-function buildPrompt(messages) {
-	return messages
-		.map(message => {
-			const content = Array.isArray(message.content)
-				? message.content.map(flattenPart).join('')
-				: flattenPart(message.content);
-			const role = message.role || 'user';
-			const name = message.name ? ` (${message.name})` : '';
-			return `${role}${name}: ${content}`;
-		})
-		.join('\n\n');
+	if(!part || typeof part !== 'object')
+		return String(part ?? '');
+
+	if('value' in part && typeof part.value === 'string')
+		return part.value;
+
+	return JSON.stringify(part);
 }
 
 /**
@@ -62,111 +44,11 @@ function buildPrompt(messages) {
  */
 function getClaudeArgs(prompt) {
 	const config = vscode.workspace.getConfiguration('lmcli');
-	const rawArgs = config.get('lmcli.claudeCliArgs', '');
-	const args = splitArgs(rawArgs).map(arg => arg.replace('{{prompt}}', prompt));
-	if (!args.some(arg => arg.includes(prompt))) {
+	const rawArgs = config.get('lmcli.claudeCliArgs','');
+	const args = splitArgs(rawArgs).map(arg => arg.replace('{{prompt}}',prompt));
+	if(!args.some(arg => arg.includes(prompt)))
 		args.push(prompt);
-	}
 	return args;
-}
-
-/**
- * @returns {Promise<string>}
- */
-function getClaudeVersion() {
-	const config = vscode.workspace.getConfiguration('lmcli');
-	const claudeCliPath = config.get('lmcli.claudeCliPath', 'claude');
-
-	return new Promise((resolve) => {
-		const child = spawn(claudeCliPath, ['-v'], { shell: false });
-		let stdout = '';
-		let stderr = '';
-
-		child.stdout.on('data', chunk => {
-			stdout += String(chunk);
-		});
-
-		child.stderr.on('data', chunk => {
-			stderr += String(chunk);
-		});
-
-		child.on('error', () => {
-			resolve('unknown');
-		});
-
-		child.on('close', code => {
-			if (code !== 0) {
-				resolve('unknown');
-			} else {
-				resolve(stdout.trim() || stderr.trim() || 'unknown');
-			}
-		});
-	});
-}
-
-/**
- * @param {unknown} value
- * @param {string[]} results
- */
-function extractClaudeText(value, results) {
-	if (typeof value === 'string') {
-		results.push(value);
-		return;
-	}
-	if (Array.isArray(value)) {
-		for (const item of value) {
-			extractClaudeText(item, results);
-		}
-		return;
-	}
-	if (value && typeof value === 'object') {
-		const obj = /** @type {{text?: string; value?: string; [key: string]: unknown}} */ (value);
-		if (typeof obj.text === 'string') {
-			results.push(obj.text);
-		}
-		if (typeof obj.value === 'string') {
-			results.push(obj.value);
-		}
-		for (const key of Object.keys(obj)) {
-			if (key === 'text' || key === 'value') {
-				continue;
-			}
-			extractClaudeText(obj[key], results);
-		}
-	}
-}
-
-/**
- * @param {vscode.Progress<vscode.LanguageModelResponsePart>} progress
- * @returns {(chunk: Buffer|string) => void}
- */
-function createJsonStreamHandler(progress) {
-	let buffer = '';
-
-	return chunk => {
-		buffer += String(chunk);
-		const lines = buffer.split(/\r?\n/);
-		buffer = lines.pop() || '';
-
-		for (const line of lines) {
-			const trimmed = line.trim();
-			if (!trimmed) {
-				continue;
-			}
-			try {
-				const parsed = JSON.parse(trimmed);
-				const pieces = /** @type {string[]} */ ([]);
-				extractClaudeText(parsed, pieces);
-				const text = pieces.join('');
-				if (text) {
-					progress.report(new vscode.LanguageModelTextPart(text));
-					outputChannel.append(text);
-				}
-			} catch (error) {
-				outputChannel.appendLine(`[json parse error] ${error instanceof Error ? error.message : String(error)}`);
-			}
-		}
-	};
 }
 
 // This method is called when your extension is activated
@@ -175,76 +57,100 @@ function createJsonStreamHandler(progress) {
 /**
  * @param {vscode.ExtensionContext} context
  */
-function activate(context) {
+async function activate(context) {
 	console.log('Congratulations, your extension "lmcli" is now active!');
 
-	if (!vscode.lm || typeof vscode.lm.registerLanguageModelChatProvider !== 'function') {
+	if(!vscode.lm || typeof vscode.lm.registerLanguageModelChatProvider !== 'function')
+	{
 		console.error('Language Model Chat API is not available in this VS Code version.');
 		return;
 	}
 
-	const disposable = vscode.lm.registerLanguageModelChatProvider('lmcli', {
-		async provideLanguageModelChatInformation(_options, _token) {
+	const {execa} = await import('execa');
+	const config = vscode.workspace.getConfiguration('lmcli');
+	function claude(/** @type {string[]} */...args) {
+		const claudeCliPath = config.get('lmcli.claudeCliPath','claude');
+		return execa(claudeCliPath,args);
+	}
+
+	const child = claude("-p","--output-format=stream-json","--verbose","--input-format=stream-json");
+	const parser = new JSONParser({
+		paths: ['$']
+	},{
+		defaultEncoding: 'utf8',
+	});
+
+	context.subscriptions.push({
+		dispose: () => {
+			parser.destroy();
+			child.kill();
+		}
+	});
+
+	const disposable = vscode.lm.registerLanguageModelChatProvider('lmcli',{
+		async provideLanguageModelChatInformation(_options,_token) {
 			void _options;
 			void _token;
+
+			const result = await claude("-v");
+			if(result.failed)
+				throw new Error(result.stderr);
+
 			return [
 				{
 					id: 'claude-cli',
 					name: 'Claude CLI',
 					family: 'claude',
-					version: await getClaudeVersion(),
+					version: result.stdout,
 					tooltip: 'Local Claude CLI chat model',
 					maxInputTokens: 12000,
 					maxOutputTokens: 2000,
 					capabilities: {
 						imageInput: false,
 						toolCalling: true
-					}
+					},
+					// Hints used by Copilot Chat's model picker to surface BYOK / third-party providers.
+					isDefault: false,
+					isUserSelectable: true
 				}
 			];
 		},
-		provideLanguageModelChatResponse(model, messages, _options, progress, token) {
-			return new Promise((resolve, reject) => {
-				const prompt = buildPrompt(messages);
-				const config = vscode.workspace.getConfiguration('lmcli');
-				const claudeCliPath = config.get('lmcli.claudeCliPath', 'claude');
-				const args = getClaudeArgs(prompt);
-
-				outputChannel.clear();
-				outputChannel.show(true);
-				outputChannel.appendLine(`Running Claude CLI: ${claudeCliPath} ${args.map(a => a.includes(' ') ? `"${a}"` : a).join(' ')}`);
-				outputChannel.appendLine(`Prompt:\n${prompt}\n`);
-
-				const child = spawn(claudeCliPath, ["-p","--output-format=stream-json","--verbose", ...args], { shell: false });
-				const handleStdout = createJsonStreamHandler(progress);
-
-				if (token && typeof token.onCancellationRequested === 'function') {
-					token.onCancellationRequested(() => {
-						child.kill();
-						reject(new Error('Claude CLI request cancelled.'));
-					});
-				}
-
-				child.stdout.on('data', handleStdout);
-
-				child.stderr.on('data', chunk => {
-					outputChannel.append(`\n[stderr] ${chunk}`);
-				});
-
-				child.on('error', error => {
-					reject(new Error(`Failed to start Claude CLI: ${error.message}`));
-				});
-
-				child.on('close', code => {
-					if (code !== 0) {
-						reject(new Error(`Claude CLI exited with code ${code}`));
-					} else {
-						resolve(undefined);
+		async provideLanguageModelChatResponse(model,messages,_options,progress,token) {
+			messages.map((msg) => {
+				return {
+					type: "user",
+					message: {
+						role: msg.role == vscode.LanguageModelChatMessageRole.User ? "user" : "assistant",
+						content: msg.content.map((part) => {
+							// Handle text content
+							if(part instanceof vscode.LanguageModelTextPart)
+								return { type: "text", text: part.value };
+							
+							// Handle tool calls
+							if(part instanceof vscode.LanguageModelToolCallPart)
+								return { type: "tool_use", id: part.callId, name: part.name, input: part.input };
+							
+							// Handle tool results
+							if(part instanceof vscode.LanguageModelToolResultPart)
+								return { type: "tool_result", tool_use_id: part.callId, content: flattenPart(part.content) };
+							
+							// Fallback for unknown types
+							return { type: "text", text: flattenPart(part) };
+						})
 					}
-				});
+				};
+			}).forEach((message) => {
+				child.stdin.write(JSON.stringify(message));
+				child.stdin.write('\n');
 			});
+			
+			for await (const data of child) {
+				progress.report(new vscode.LanguageModelTextPart(data));
+				if(token.isCancellationRequested)
+					break;
+			}
 		},
-		provideTokenCount(_model, text, _token) {
+		provideTokenCount(_model,text,_token) {
 			void _model;
 			void _token;
 			const content = typeof text === 'string' ? text : JSON.stringify(text);
@@ -263,11 +169,12 @@ function activate(context) {
 			};
 		}
 	});
+
 	context.subscriptions.push(disposable);
 }
 
 // This method is called when your extension is deactivated
-function deactivate() {}
+function deactivate() { }
 
 module.exports = {
 	activate,
