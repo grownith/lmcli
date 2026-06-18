@@ -9,6 +9,9 @@
   "enabledApiProposals": [
     "chatProvider"
   ],
+  "extensionDependencies": [
+    "Anthropic.claude-code"
+  ],
   "categories": [
     "Other"
   ],
@@ -33,13 +36,8 @@
       "properties": {
         "lmcli.claudeCliPath": {
           "type": "string",
-          "default": "claude",
-          "description": "Path to the Claude CLI executable."
-        },
-        "lmcli.claudeCliArgs": {
-          "type": "string",
           "default": "",
-          "description": "Extra arguments to pass to the Claude CLI. Use {{prompt}} to insert the prompt."
+          "description": "Path to the Claude CLI executable. Leave empty to use the claude.exe bundled with the official Claude Code extension (Anthropic.claude-code); falls back to 'claude' on PATH if that cannot be located."
         }
       }
     }
@@ -56,9 +54,5 @@
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.3"
   },
-  "dependencies": {
-    "@streamparser/json-node": "^0.0.22",
-    "execa": "^9.6.1",
-    "rxjs": "^7.8.2"
-  }
+  "dependencies": {}
 }
